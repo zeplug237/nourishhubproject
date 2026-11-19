@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nourish_hub
+      POSTGRES_USER: nourish_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - nourish_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+volumes:
+  nourish_postgres:
