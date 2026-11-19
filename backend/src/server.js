@@ -385,7 +385,9 @@ app.get('/api/users', allow('ADMIN', 'MANAGER'), asyncRoute(async (_req, res) =>
   res.json(rows);
 }));
 app.post('/api/users', allow('ADMIN'), asyncRoute(async (req, res) => {
-  const d = z.object({ full_name: z.string().min(2).max(140), email: z.string().email(), password: z.string().min(10), role: z.enum(['ADMIN', 'MANAGER', 'STOREKEEPER', 'CASHIER', 'ACCOUNTANT', 'AUDIT_TEAM_LEAD', 'INVENTORY_OFFICER']) }).parse(req.body);
+  const parsed = z.object({ full_name: z.string().trim().min(2).max(140), email: z.string().trim().email(), password: z.string().min(10).max(128), role: z.enum(['ADMIN', 'MANAGER', 'STOREKEEPER', 'CASHIER', 'ACCOUNTANT', 'AUDIT_TEAM_LEAD', 'INVENTORY_OFFICER']) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Enter a name, valid email, password of at least 10 characters, and a valid role.' });
+  const d = parsed.data;
   const user = await prisma.user.create({ data: { full_name: d.full_name, email: d.email.toLowerCase(), password_hash: await hashPassword(d.password), role: d.role, email_verified: true } });
   res.status(201).json({ id: user.id, message: 'User created' });
 }));
@@ -412,8 +414,12 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ error: err.status ? err.message : 'An unexpected server error occurred' });
 });
 
-const port = Number(process.env.PORT || 3000);
-const server = app.listen(port, () => console.log(`NOURISH HUB Store running at http://localhost:${port}`));
-const shutdown = async () => { server.close(); await prisma.$disconnect(); process.exit(0); };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+export default app;
+
+if (process.env.VERCEL !== '1') {
+  const port = Number(process.env.PORT || 3000);
+  const server = app.listen(port, () => console.log(`NOURISH HUB Store running at http://localhost:${port}`));
+  const shutdown = async () => { server.close(); await prisma.$disconnect(); process.exit(0); };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
