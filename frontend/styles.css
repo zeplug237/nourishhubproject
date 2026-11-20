@@ -70,3 +70,28 @@
   .report-cards{grid-template-columns:minmax(0,1fr)}
   .footer{padding:14px 12px}
 }
+
+/* Login screen entrance and ambient motion */
+.login-brand{animation:login-brand-in .65s cubic-bezier(.2,.75,.25,1) both}
+.login-art{animation:login-art-in .9s cubic-bezier(.2,.75,.25,1) both}
+.login-panel{animation:login-panel-in .75s cubic-bezier(.2,.75,.25,1) .08s both}
+.art-copy>.eyebrow{animation:login-copy-in .55s ease .25s both}
+.art-copy h1{animation:login-copy-in .65s ease .36s both}
+.art-copy p{animation:login-copy-in .65s ease .48s both}
+.art-pills{animation:login-copy-in .65s ease .6s both}
+.art-orbit{animation:orbit-drift 16s ease-in-out infinite alternate}
+.login-art:after{animation:halo-breathe 12s ease-in-out infinite alternate}
+.login-form-wrap form:not(.hidden){animation:auth-form-in .38s ease both}
+.login-form-wrap .btn.primary span{display:inline-block;transition:transform .2s ease}
+.login-form-wrap .btn.primary:hover span{transform:translateX(4px)}
+@keyframes login-brand-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes login-art-in{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
+@keyframes login-panel-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes login-copy-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes auth-form-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes orbit-drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(-12px,10px,0) scale(1.025)}}
+@keyframes halo-breathe{from{opacity:.55;transform:scale(.98)}to{opacity:1;transform:scale(1.025)}}
+@media(prefers-reduced-motion:reduce){
+  .login-brand,.login-art,.login-panel,.art-copy>.eyebrow,.art-copy h1,.art-copy p,.art-pills,.art-orbit,.login-art:after,.login-form-wrap form:not(.hidden){animation:none!important}
+  .login-form-wrap .btn.primary span{transition:none}
+}
