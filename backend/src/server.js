@@ -58,7 +58,13 @@ const verificationHash = (code) => createHmac('sha256', process.env.JWT_SECRET |
 async function sendVerificationCode(email, fullName, code) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
-  if (!apiKey || !from) throw Object.assign(new Error('Email verification is not configured. Set RESEND_API_KEY and EMAIL_FROM in backend/.env.'), { status: 503 });
+  // Local development can verify the flow without exposing codes in API responses.
+  // This fallback is intentionally unavailable in production.
+  if ((!apiKey || !from) && process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true') {
+    console.info(`[email-dev] Verification code for ${email}: ${code} (expires in 15 minutes)`);
+    return;
+  }
+  if (!apiKey || !from) throw Object.assign(new Error('Email verification is not configured on the server. Set RESEND_API_KEY and EMAIL_FROM.'), { status: 503 });
   const safeName = String(fullName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let response;
   try {
@@ -118,7 +124,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     role: z.enum(['CASHIER', 'MANAGER', 'STOREKEEPER', 'INVENTORY_OFFICER', 'ACCOUNTANT', 'AUDIT_TEAM_LEAD']),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Enter your name, email, password, and requested role.' });
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return res.status(503).json({ error: 'Email verification is not configured. Set RESEND_API_KEY and EMAIL_FROM in backend/.env.' });
+  if ((!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) && !(process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true')) return res.status(503).json({ error: 'Email verification is not configured on the server. Set RESEND_API_KEY and EMAIL_FROM.' });
   const { full_name, password, role } = parsed.data;
   const email = parsed.data.email.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -169,7 +175,7 @@ app.post('/api/auth/verify-email', asyncRoute(async (req, res) => {
 app.post('/api/auth/resend-code', asyncRoute(async (req, res) => {
   const parsed = z.object({ email: z.string().trim().email().max(190) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Enter a valid email address.' });
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return res.status(503).json({ error: 'Email verification is not configured on the server.' });
+  if ((!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) && !(process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true')) return res.status(503).json({ error: 'Email verification is not configured on the server.' });
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
   if (!user || user.email_verified) return res.json({ message: 'If the account needs verification, a new code has been sent.' });
   const code = String(randomInt(0, 1000000)).padStart(6, '0');

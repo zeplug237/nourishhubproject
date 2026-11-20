@@ -28,6 +28,8 @@ The front page lets applicants request the Cashier, Manager, Storekeeper, Invent
 
 Account requests send a six-digit verification code through Resend. Set `RESEND_API_KEY` and `EMAIL_FROM` in `.env`; the sender address must belong to a domain verified in your Resend account. Codes expire after 15 minutes. Users verify their email before an administrator activates their requested role. See the [Resend email API documentation](https://resend.com/docs/api-reference/emails/send-email).
 
+For local development without Resend credentials, set `EMAIL_DEV_MODE=true` while `NODE_ENV` is not `production`. The code is printed in the backend terminal and is never returned from the API. Do not enable this mode in production; configure Resend there for delivery to users' inboxes.
+
 ## Prisma commands
 
 ```powershell
