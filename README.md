@@ -63,19 +63,13 @@ The API is available at `http://localhost:3000`; health check: `http://localhost
 
 1. Open the `frontend` folder in VS Code.
 2. Open `index.html` using the Live Server extension (or any static web server).
-3. On localhost, the frontend calls `http://localhost:3000/api`. On Vercel, it uses the same-origin `/api` route:
+3. The frontend calls `http://localhost:3000/api` by default. Change `frontend/config.js` if your API is hosted elsewhere:
 
 ```js
 window.NOURISH_API_BASE = 'https://your-api-domain.example/api';
 ```
 
 For deployment, configure the backend `APP_ORIGIN` to the exact frontend website origin. Do not use `*` for production CORS when credentials are enabled.
-
-## Vercel deployment (frontend and API on one domain)
-
-This repository includes a Vercel catch-all function for the Express API and serves the `frontend/` directory as the site. In Vercel project settings, set **Root Directory** to the repository root (not `frontend` or `backend`) and redeploy. The checked-in `vercel.json` builds Prisma Client and publishes the frontend.
-
-Add the backend secrets under **Project Settings → Environment Variables** in Vercel; local `.env` files are not deployed. At minimum configure `DATABASE_URL`, `JWT_SECRET`, and `APP_ORIGIN` with the production site origin. For signup verification also configure `RESEND_API_KEY` and `EMAIL_FROM`. After setting them, redeploy so the API function receives the values.
 
 ## 3. Default development account
 

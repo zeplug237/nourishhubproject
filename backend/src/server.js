@@ -405,7 +405,6 @@ app.get('/api/audit', allow('ADMIN', 'MANAGER', 'AUDIT_TEAM_LEAD'), asyncRoute(a
   res.json(rows.map(a => ({ ...a, full_name: a.user?.full_name ?? null, user: undefined })));
 }));
 
-// Frontend is deployed separately from this API service.
 app.use((err, _req, res, _next) => {
   console.error(err);
   if (err instanceof z.ZodError) return res.status(400).json({ error: 'Please check the form fields', details: err.issues.map(i => ({ field: i.path.join('.'), message: i.message })) });
@@ -414,12 +413,8 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ error: err.status ? err.message : 'An unexpected server error occurred' });
 });
 
-export default app;
-
-if (process.env.VERCEL !== '1') {
-  const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, () => console.log(`NOURISH HUB Store running at http://localhost:${port}`));
-  const shutdown = async () => { server.close(); await prisma.$disconnect(); process.exit(0); };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-}
+const port = Number(process.env.PORT || 3000);
+const server = app.listen(port, () => console.log(`NOURISH HUB Store running at http://localhost:${port}`));
+const shutdown = async () => { server.close(); await prisma.$disconnect(); process.exit(0); };
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
