@@ -4,7 +4,6 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { prisma, withTransaction } from './db.js';
@@ -38,8 +37,6 @@ app.use('/api/auth/register', rateLimit({
   legacyHeaders: false,
   handler: (_req, res) => res.status(429).json({ error: 'Too many account requests. Please wait and try again later.' }),
 }));
-app.use('/api/auth/verify-email', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false }));
-app.use('/api/auth/resend-code', rateLimit({ windowMs: 60 * 60 * 1000, limit: 3, standardHeaders: true, legacyHeaders: false }));
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const positiveInt = z.number().int().positive();
@@ -54,37 +51,6 @@ const productSchema = z.object({
 const dayStart = (value) => { const d = new Date(`${value}T00:00:00`); if (Number.isNaN(d.getTime())) throw Object.assign(new Error('Invalid date filter'), { status: 400 }); return d; };
 const dayAfter = (value) => { const d = dayStart(value); d.setDate(d.getDate() + 1); return d; };
 const dateKey = (date) => new Date(date).toISOString().slice(0, 10);
-const verificationHash = (code) => createHmac('sha256', process.env.JWT_SECRET || '').update(code).digest('hex');
-async function sendVerificationCode(email, fullName, code) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
-  // Local development can verify the flow without exposing codes in API responses.
-  // This fallback is intentionally unavailable in production.
-  if ((!apiKey || !from) && process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true') {
-    console.info(`[email-dev] Verification code for ${email}: ${code} (expires in 15 minutes)`);
-    return;
-  }
-  if (!apiKey || !from) throw Object.assign(new Error('Email verification is not configured on the server. Set RESEND_API_KEY and EMAIL_FROM.'), { status: 503 });
-  const safeName = String(fullName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  let response;
-  try {
-    response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from, to: [email], subject: 'Your NOURISH HUB verification code',
-        text: `Hello ${fullName}, your NOURISH HUB verification code is ${code}. It expires in 15 minutes.`,
-        html: `<p>Hello ${safeName},</p><p>Your NOURISH HUB verification code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>This code expires in 15 minutes. If you did not request it, ignore this email.</p>`,
-      }),
-    });
-  } catch {
-    throw Object.assign(new Error('Could not connect to the email service. Please try again.'), { status: 502 });
-  }
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(detail.message || 'The email service could not send the verification code.'), { status: 502 });
-  }
-}
 const mapProduct = (p, cashier = false) => {
   const result = {
     ...p,
@@ -109,8 +75,7 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Enter a valid email and password' });
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
   if (!user || !await verifyPassword(parsed.data.password, user.password_hash)) return res.status(401).json({ error: 'Incorrect email or password' });
-  if (!user.email_verified) return res.status(403).json({ error: 'Verify your email with the code we sent before signing in.' });
-  if (!user.is_active) return res.status(403).json({ error: 'Your email is verified. An administrator must activate your requested role before you can sign in.' });
+  if (!user.is_active) return res.status(403).json({ error: 'Your account is awaiting administrator approval. Please try again after an administrator approves it.' });
   await prisma.user.update({ where: { id: user.id }, data: { last_login_at: new Date() } });
   const token = signToken(user);
   res.json({ token, user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role } });
@@ -124,66 +89,20 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     role: z.enum(['CASHIER', 'MANAGER', 'STOREKEEPER', 'INVENTORY_OFFICER', 'ACCOUNTANT', 'AUDIT_TEAM_LEAD']),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Enter your name, email, password, and requested role.' });
-  if ((!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) && !(process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true')) return res.status(503).json({ error: 'Email verification is not configured on the server. Set RESEND_API_KEY and EMAIL_FROM.' });
   const { full_name, password, role } = parsed.data;
   const email = parsed.data.email.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing?.email_verified) return res.status(409).json({ error: 'This email is already registered. Sign in or ask an administrator to activate the account.' });
-  const code = String(randomInt(0, 1000000)).padStart(6, '0');
-  const expires = new Date(Date.now() + 15 * 60 * 1000);
+  if (existing) return res.status(409).json({ error: 'This email is already registered. Sign in or contact an administrator.' });
   try {
-    if (existing) {
-      await prisma.user.update({ where: { id: existing.id }, data: {
-        full_name, password_hash: await hashPassword(password), role, is_active: false,
-        email_verified: false, verification_code_hash: verificationHash(code),
-        verification_expires_at: expires, verification_attempts: 0,
-      }});
-    } else {
-      await prisma.user.create({ data: {
-        full_name, email, password_hash: await hashPassword(password), role, is_active: false,
-        email_verified: false, verification_code_hash: verificationHash(code),
-        verification_expires_at: expires, verification_attempts: 0,
-      }});
-    }
+    await prisma.user.create({ data: {
+      full_name, email, password_hash: await hashPassword(password), role, is_active: false,
+      email_verified: true, verification_code_hash: null, verification_expires_at: null, verification_attempts: 0,
+    }});
   } catch (error) {
-    if (error.code === 'P2002') return res.status(409).json({ error: 'This email is already registered. Sign in or ask an administrator to activate the account.' });
+    if (error.code === 'P2002') return res.status(409).json({ error: 'This email is already registered. Sign in or contact an administrator.' });
     throw error;
   }
-  await sendVerificationCode(email, full_name, code);
-  res.status(existing ? 200 : 201).json({ message: 'Verification code sent. Check your email and enter the six-digit code to verify your address.' });
-}));
-
-app.post('/api/auth/verify-email', asyncRoute(async (req, res) => {
-  const parsed = z.object({ email: z.string().trim().email().max(190), code: z.string().regex(/^\d{6}$/) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Enter a valid email and six-digit verification code.' });
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
-  if (!user || user.email_verified || !user.verification_code_hash) return res.status(400).json({ error: 'This verification code is invalid or expired. Request a new code.' });
-  if (user.verification_attempts >= 5) return res.status(429).json({ error: 'Too many incorrect codes. Request a new verification code.' });
-  if (!user.verification_expires_at || user.verification_expires_at <= new Date()) return res.status(400).json({ error: 'This verification code has expired. Request a new code.' });
-  const actual = Buffer.from(verificationHash(parsed.data.code));
-  const expected = Buffer.from(user.verification_code_hash);
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-    await prisma.user.update({ where: { id: user.id }, data: { verification_attempts: { increment: 1 } } });
-    return res.status(400).json({ error: 'That code is incorrect. Check the email and try again.' });
-  }
-  await prisma.user.update({ where: { id: user.id }, data: {
-    email_verified: true, verification_code_hash: null, verification_expires_at: null, verification_attempts: 0,
-  }});
-  res.json({ message: 'Email verified. An administrator must activate your requested role before you can sign in.' });
-}));
-
-app.post('/api/auth/resend-code', asyncRoute(async (req, res) => {
-  const parsed = z.object({ email: z.string().trim().email().max(190) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Enter a valid email address.' });
-  if ((!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) && !(process.env.NODE_ENV !== 'production' && process.env.EMAIL_DEV_MODE === 'true')) return res.status(503).json({ error: 'Email verification is not configured on the server.' });
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
-  if (!user || user.email_verified) return res.json({ message: 'If the account needs verification, a new code has been sent.' });
-  const code = String(randomInt(0, 1000000)).padStart(6, '0');
-  await prisma.user.update({ where: { id: user.id }, data: {
-    verification_code_hash: verificationHash(code), verification_expires_at: new Date(Date.now() + 15 * 60 * 1000), verification_attempts: 0,
-  }});
-  await sendVerificationCode(user.email, user.full_name, code);
-  res.json({ message: 'A new verification code has been sent.' });
+  res.status(201).json({ message: 'Account request submitted. An administrator must approve your account before you can sign in.' });
 }));
 
 app.post('/api/auth/change-password', authenticate, asyncRoute(async (req, res) => {
@@ -401,10 +320,9 @@ app.post('/api/users', allow('ADMIN'), asyncRoute(async (req, res) => {
 app.patch('/api/users/:id/status', allow('ADMIN'), asyncRoute(async (req, res) => {
   const active = z.boolean().parse(req.body.is_active); const id = BigInt(req.params.id);
   if (BigInt(req.user.sub) === id && !active) return res.status(400).json({ error: 'You cannot deactivate your own account' });
-  const target = await prisma.user.findUnique({ where: { id }, select: { email_verified: true } });
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true } });
   if (!target) return res.status(404).json({ error: 'The requested record was not found' });
-  if (active && !target.email_verified) return res.status(400).json({ error: 'The user must verify their email before activation.' });
-  await prisma.user.update({ where: { id }, data: { is_active: active } });
+  await prisma.user.update({ where: { id }, data: { is_active: active, ...(active ? { email_verified: true, verification_code_hash: null, verification_expires_at: null, verification_attempts: 0 } : {}) } });
   res.json({ message: 'User status updated' });
 }));
 app.get('/api/audit', allow('ADMIN', 'MANAGER', 'AUDIT_TEAM_LEAD'), asyncRoute(async (_req, res) => {
