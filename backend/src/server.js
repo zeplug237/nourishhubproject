@@ -115,7 +115,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     full_name: z.string().trim().min(2).max(140),
     email: z.string().trim().email().max(190),
     password: z.string().min(10).max(128),
-    role: z.enum(['ACCOUNTANT', 'AUDIT_TEAM_LEAD', 'INVENTORY_OFFICER']),
+    role: z.enum(['CASHIER', 'MANAGER', 'STOREKEEPER', 'INVENTORY_OFFICER', 'ACCOUNTANT', 'AUDIT_TEAM_LEAD']),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Enter your name, email, password, and requested role.' });
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return res.status(503).json({ error: 'Email verification is not configured. Set RESEND_API_KEY and EMAIL_FROM in backend/.env.' });

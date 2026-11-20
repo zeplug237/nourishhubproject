@@ -22,7 +22,7 @@ npm.cmd start
 
 The API runs at `http://localhost:3000`. Check `http://localhost:3000/api/health`.
 
-The front page lets applicants request the Accountant, Audit team lead, or Inventory officer role. Registration sends an email verification code; verified accounts remain inactive until an administrator reviews the requested role and activates them under **Team access**. Each role has separate API permissions.
+The front page lets applicants request the Cashier, Manager, Storekeeper, Inventory officer, Accountant, or Audit team lead role. Registration sends an email verification code; verified accounts remain inactive until an administrator reviews the requested role and activates them under **Team access**. Each role has separate API permissions.
 
 ### Email verification
 
