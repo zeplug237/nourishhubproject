@@ -386,8 +386,9 @@ app.get('/api/reports/sales.csv', allow('ADMIN', 'MANAGER', 'ACCOUNTANT'), async
   const csv = ['Sale No,Date,Cashier,Payment,Subtotal,Discount,Total,Paid,Change', ...rows.map(r => [r.sale_no, r.created_at, r.cashier.full_name, r.payment_method, r.subtotal, r.discount, r.total_amount, r.amount_paid, r.change_due].map(q).join(','))].join('\n');
   res.type('text/csv').attachment('nourish-hub-sales-report.csv').send(csv);
 }));
-app.get('/api/users', allow('ADMIN', 'MANAGER'), asyncRoute(async (_req, res) => {
-  const rows = await prisma.user.findMany({ select: { id: true, full_name: true, email: true, role: true, is_active: true, email_verified: true, last_login_at: true, created_at: true }, orderBy: { full_name: 'asc' } });
+app.get('/api/users', allow('ADMIN'), asyncRoute(async (_req, res) => {
+  // Keep verified applicants awaiting approval at the top of Team access.
+  const rows = await prisma.user.findMany({ select: { id: true, full_name: true, email: true, role: true, is_active: true, email_verified: true, last_login_at: true, created_at: true }, orderBy: [{ is_active: 'asc' }, { email_verified: 'desc' }, { full_name: 'asc' }] });
   res.json(rows);
 }));
 app.post('/api/users', allow('ADMIN'), asyncRoute(async (req, res) => {
